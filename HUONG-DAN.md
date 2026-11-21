@@ -59,6 +59,10 @@ create table if not exists public.groups (
 
 alter table public.groups enable row level security;
 
+-- Cấp quyền ở cấp bảng cho role anon/authenticated (bắt buộc, RLS chưa đủ)
+grant usage on schema public to anon, authenticated;
+grant select, insert, update on public.groups to anon, authenticated;
+
 -- Cho phép đọc/ghi ở mức anon (bảo vệ bằng mã nhóm ngẫu nhiên)
 drop policy if exists "group_select" on public.groups;
 create policy "group_select" on public.groups
