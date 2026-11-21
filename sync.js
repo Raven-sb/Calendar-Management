@@ -31,11 +31,12 @@ let roomCode = null;
 let pushTimer = null;
 let refreshing = false;
 
-let myClientId = localStorage.getItem(CLIENT_KEY);
+/* Mỗi tab có một clientId riêng để không bỏ qua cập nhật của tab khác */
+let myClientId = sessionStorage.getItem(CLIENT_KEY);
 if (!myClientId) {
   myClientId = (crypto.randomUUID && crypto.randomUUID()) ||
     'c' + Date.now().toString(36) + Math.random().toString(36).slice(2);
-  localStorage.setItem(CLIENT_KEY, myClientId);
+  sessionStorage.setItem(CLIENT_KEY, myClientId);
 }
 
 /* ---------------- UI helpers ---------------- */

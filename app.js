@@ -6,6 +6,18 @@
    ========================================================= */
 
 const STORAGE_KEY = 'groupSchedule.v1';
+const DEVICE_KEY = 'groupSchedule.deviceId';
+
+/* Mỗi máy/trình duyệt có một định danh riêng để xác định "thành viên của mình" */
+function getDeviceId() {
+  let id = localStorage.getItem(DEVICE_KEY);
+  if (!id) {
+    id = 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+    localStorage.setItem(DEVICE_KEY, id);
+  }
+  return id;
+}
+const MY_DEVICE = getDeviceId();
 
 /* sync.js sẽ thay thế object này khi được cấu hình */
 window.Sync = window.Sync || { enabled: () => false, changed: () => {} };
@@ -39,7 +51,10 @@ function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return defaultState();
-    return normalizeState(JSON.parse(raw));
+    const loaded = normalizeState(JSON.parse(raw));
+    const mine = loaded.members.find(m => m.owner === MY_DEVICE);
+    if (mine) loaded.selectedMemberId = mine.id;
+    return loaded;
   } catch (err) {
     console.warn('Không đọc được dữ liệu đã lưu:', err);
     return defaultState();
@@ -53,7 +68,12 @@ function normalizeState(raw) {
   if (Array.isArray(raw.members)) {
     s.members = raw.members
       .filter(m => m && typeof m.id === 'string' && typeof m.name === 'string' && m.name.trim())
-      .map(m => ({ id: m.id, name: m.name.trim().slice(0, 30), color: /^#[0-9a-fA-F]{6}$/.test(m.color) ? m.color : MEMBER_COLORS[0] }));
+      .map(m => ({
+        id: m.id,
+        name: m.name.trim().slice(0, 30),
+        color: /^#[0-9a-fA-F]{6}$/.test(m.color) ? m.color : MEMBER_COLORS[0],
+        owner: typeof m.owner === 'string' ? m.owner : null
+      }));
   }
   if (raw.availability && typeof raw.availability === 'object') s.availability = raw.availability;
   if (typeof raw.weekKey === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw.weekKey)) s.weekKey = raw.weekKey;
@@ -115,6 +135,8 @@ function esc(value) {
 /* ---------------- Data helpers ---------------- */
 
 function getMember(id) { return state.members.find(m => m.id === id) || null; }
+function isMine(member) { return !!member && member.owner === MY_DEVICE; }
+function getMyMember() { return state.members.find(isMine) || null; }
 function getEntry(memberId, dateKey) { return state.availability[memberId]?.[dateKey] || null; }
 function isFree(memberId, dateKey, slotId) { return !!getEntry(memberId, dateKey)?.slots?.[slotId]; }
 function getNote(memberId, dateKey) { return getEntry(memberId, dateKey)?.note || ''; }
@@ -160,22 +182,44 @@ function renderAll() {
 
 function renderMembers() {
   const box = document.getElementById('memberChips');
-  document.getElementById('memberSummary').textContent =
-    state.members.length ? `${state.members.length} thành viên · ${state.members.reduce((n, m) => n + memberMarkCount(m.id), 0)} buổi đã đánh dấu` : 'Chưa có thành viên nào';
+  const mine = getMyMember();
+  const addBtn = document.getElementById('btnAddMember');
+  addBtn.hidden = !!mine;
+  addBtn.title = mine ? 'Mỗi thiết bị chỉ được tạo 1 thành viên' : '';
+
+  const totalMarks = state.members.reduce((n, m) => n + memberMarkCount(m.id), 0);
+  document.getElementById('memberSummary').textContent = mine
+    ? `${state.members.length} thành viên · ${totalMarks} buổi đã đánh dấu · Thiết bị này: ${mine.name} (chỉ sửa được thành viên của bạn)`
+    : state.members.length
+      ? `${state.members.length} thành viên · ${totalMarks} buổi đã đánh dấu · Thiết bị này chưa có thành viên`
+      : 'Chưa có thành viên nào';
 
   if (!state.members.length) {
     box.innerHTML = '<span class="members-empty">Chưa có thành viên. Nhấn “Thêm thành viên” để bắt đầu.</span>';
     return;
   }
-  box.innerHTML = state.members.map(m => `
-    <div class="member-chip ${m.id === state.selectedMemberId ? 'active' : ''}" data-id="${esc(m.id)}">
-      <button class="chip-main" type="button" data-action="select" title="Chỉnh sửa lịch của ${esc(m.name)}">
+  const canClaim = !mine && state.members.some(m => !m.owner);
+  box.innerHTML = state.members.map(m => {
+    const own = isMine(m);
+    let extra = '';
+    if (own) {
+      extra = `<button class="chip-edit" type="button" data-action="edit" title="Đổi tên/màu ${esc(m.name)}" aria-label="Sửa ${esc(m.name)}">✎</button>
+               <button class="chip-del" type="button" data-action="delete" title="Xóa ${esc(m.name)}" aria-label="Xóa ${esc(m.name)}">×</button>`;
+    } else if (!m.owner && canClaim) {
+      extra = `<button class="chip-claim" type="button" data-action="claim" title="Gán thành viên này cho thiết bị của bạn">Nhận</button>`;
+    } else {
+      extra = `<span class="chip-lock" title="Chỉ thiết bị chủ sở hữu mới được sửa">🔒</span>`;
+    }
+    return `<div class="member-chip ${m.id === state.selectedMemberId ? 'active' : ''} ${own ? 'mine' : ''}" data-id="${esc(m.id)}">
+      <button class="chip-main" type="button" data-action="select" title="${own ? 'Lịch của bạn' : 'Chỉ xem lịch của ' + esc(m.name)}">
         <span class="chip-dot" style="--c:${esc(m.color)}"></span>
         <span>${esc(m.name)}</span>
+        ${own ? '<span class="chip-you">bạn</span>' : ''}
         <span class="chip-count" title="Số buổi đã đánh dấu">${memberMarkCount(m.id)}</span>
       </button>
-      <button class="chip-del" type="button" data-action="delete" title="Xóa ${esc(m.name)}" aria-label="Xóa ${esc(m.name)}">×</button>
-    </div>`).join('');
+      ${extra}
+    </div>`;
+  }).join('');
 }
 
 function renderWeekBar() {
@@ -200,34 +244,44 @@ function renderCalendar() {
       <div class="empty" style="grid-column:1/-1">
         <div class="empty-icon">👥</div>
         <h3>Chưa có thành viên nào</h3>
-        <p>Nhấn “Thêm thành viên” hoặc dùng “Dữ liệu mẫu” để xem thử ứng dụng.</p>
+        <p>Nhấn “Thêm thành viên” hoặc dùng “Lịch mẫu cho tôi” để bắt đầu.</p>
       </div>`;
     return;
   }
 
-  title.innerHTML = `Lịch của <span style="color:${esc(member.color)}">${esc(member.name)}</span>`;
-  subtitle.textContent = 'Tích vào buổi bạn rảnh, rồi ghi chú khung giờ cụ thể (nếu có).';
-  actions.hidden = false;
+  const editable = isMine(member);
+  title.innerHTML = `${editable ? '✏️' : '🔒'} Lịch của <span style="color:${esc(member.color)}">${esc(member.name)}</span>`;
+  subtitle.textContent = editable
+    ? 'Tích vào buổi bạn rảnh, rồi ghi chú khung giờ cụ thể (nếu có).'
+    : `Bạn đang XEM lịch của ${member.name}. Chỉ thiết bị của ${member.name} mới có thể sửa.`;
+  actions.hidden = !editable;
 
   const todayKey = toKey(new Date());
-  box.innerHTML = getWeekDates().map(date => {
+  const banner = editable ? '' : `<div class="readonly-banner" style="grid-column:1/-1">
+      🔒 Đây là lịch do máy khác tạo. Bạn có thể xem và dùng gợi ý, nhưng không thể tích buổi hay sửa ghi chú.
+    </div>`;
+  box.innerHTML = banner + getWeekDates().map(date => {
     const key = toKey(date);
     const di = dowIndex(date);
     const note = getNote(member.id, key);
     const slotsHtml = SLOTS.map(s => {
       const on = isFree(member.id, key, s.id);
-      return `<button type="button" class="slot s-${s.cls} ${on ? 'on' : ''}" data-slot="${s.id}" aria-pressed="${on}" title="Đánh dấu buổi ${s.label}">
+      return `<button type="button" class="slot s-${s.cls} ${on ? 'on' : ''} ${editable ? '' : 'readonly'}" data-slot="${s.id}" aria-pressed="${on}" ${editable ? '' : 'disabled title="Chỉ xem"'}>
                 <span>${s.icon}</span><span>${s.label}</span><span class="check">✓</span>
               </button>`;
     }).join('');
+    const noteHtml = editable
+      ? `<label class="note-label">Ghi chú khung giờ</label>
+         <textarea class="note-input ${note ? 'has-note' : ''}" data-date="${key}" rows="2" placeholder="VD: 9h00–11h00">${esc(note)}</textarea>`
+      : `<div class="note-label">Ghi chú khung giờ</div>
+         <div class="note-readonly ${note ? 'has-note' : ''}">${note ? esc(note) : '—'}</div>`;
     return `<div class="day-card ${di >= 5 ? 'weekend' : ''} ${key === todayKey ? 'today' : ''}" data-date="${key}">
               <div class="day-head">
                 <div><span class="day-dow">${DOW[di]}</span><span class="day-date">${shortDate(date)}</span></div>
                 ${key === todayKey ? '<span class="today-tag">Hôm nay</span>' : ''}
               </div>
               <div class="slot-toggles">${slotsHtml}</div>
-              <label class="note-label">Ghi chú khung giờ</label>
-              <textarea class="note-input ${note ? 'has-note' : ''}" data-date="${key}" rows="2" placeholder="VD: 9h00–11h00">${esc(note)}</textarea>
+              ${noteHtml}
             </div>`;
   }).join('');
 }
@@ -371,6 +425,14 @@ function renderChosen() {
 /* ---------------- Member modal ---------------- */
 
 function openMemberModal(id = null) {
+  if (id && !isMine(getMember(id))) {
+    toast('🔒 Bạn chỉ được sửa thành viên do chính thiết bị này tạo.');
+    return;
+  }
+  if (!id && getMyMember()) {
+    toast('Mỗi thiết bị chỉ được tạo 1 thành viên.');
+    return;
+  }
   ui.modalId = id;
   const member = id ? getMember(id) : null;
   ui.modalColor = member?.color || MEMBER_COLORS[state.members.length % MEMBER_COLORS.length];
@@ -385,52 +447,55 @@ function closeMemberModal() { document.getElementById('memberModal').hidden = tr
 
 /* ---------------- Sample / import / export ---------------- */
 
-function buildSampleState() {
-  const s = defaultState();
-  s.members = [
-    { id: 'u1', name: 'An', color: '#6366f1' },
-    { id: 'u2', name: 'Bình', color: '#0ea5e9' },
-    { id: 'u3', name: 'Chi', color: '#ec4899' },
-    { id: 'u4', name: 'Dũng', color: '#f59e0b' }
-  ];
-  s.selectedMemberId = 'u1';
+/* Chỉ điền lịch mẫu cho CHÍNH thành viên của thiết bị này */
+function fillMySample() {
+  let me = getMyMember();
+  if (!me) {
+    const id = 'u' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    me = { id, name: 'Bạn', color: MEMBER_COLORS[state.members.length % MEMBER_COLORS.length], owner: MY_DEVICE };
+    state.members.push(me);
+    state.availability[id] = {};
+    state.selectedMemberId = id;
+  }
+  if (memberMarkCount(me.id) && !confirm('Thay lịch hiện tại của bạn bằng lịch mẫu?')) return;
+
+  const pattern = [[1, 0, 1], [1, 0, 1], [0, 0, 1], [1, 1, 0], [1, 0, 1], [1, 1, 0], [0, 1, 1]];
+  const notes = { 0: 'Sau 9h', 2: '20h00 – 21h30', 5: '9h00 – 11h00' };
   const week = Array.from({ length: 7 }, (_, i) => toKey(addDays(startOfWeek(new Date()), i)));
-  const patterns = {
-    u1: [[1, 0, 1], [1, 0, 1], [0, 0, 1], [1, 1, 0], [1, 0, 1], [1, 1, 0], [0, 1, 1]],
-    u2: [[0, 1, 1], [1, 1, 0], [1, 0, 1], [0, 1, 1], [1, 0, 1], [1, 1, 0], [1, 0, 1]],
-    u3: [[1, 1, 0], [0, 1, 1], [1, 0, 1], [1, 1, 0], [1, 1, 1], [1, 0, 1], [0, 0, 1]],
-    u4: [[1, 0, 0], [1, 1, 1], [0, 1, 1], [1, 0, 1], [1, 1, 0], [1, 1, 0], [1, 1, 1]]
-  };
-  const noteMap = {
-    2: {
-      u1: { evening: '20h00 – 21h30' },
-      u2: { evening: 'Sau 19h30 đều được' },
-      u3: { evening: '19h00 – 21h00' },
-      u4: { evening: 'Tối nào cũng rảnh' }
-    },
-    5: {
-      u1: { morning: '9h00 – 11h00' },
-      u2: { morning: '8h30 – 10h30' },
-      u3: { morning: 'Cả buổi sáng' },
-      u4: { morning: 'Từ 9h30 trở đi' }
-    },
-    0: { u1: { morning: 'Sau 9h' }, u3: { morning: '7h – 10h' } },
-    3: { u2: { afternoon: '14h – 16h' }, u4: { afternoon: 'Sau 15h' } }
-  };
-  s.members.forEach(m => {
-    s.availability[m.id] = {};
-    week.forEach((key, di) => {
-      const arr = patterns[m.id][di];
-      const extra = noteMap[di]?.[m.id];
-      const note = extra ? extra[Object.keys(extra)[0]] : '';
-      s.availability[m.id][key] = {
-        slots: { morning: !!arr[0], afternoon: !!arr[1], evening: !!arr[2] },
-        note
-      };
-    });
+  state.availability[me.id] = {};
+  week.forEach((key, di) => {
+    const arr = pattern[di];
+    state.availability[me.id][key] = {
+      slots: { morning: !!arr[0], afternoon: !!arr[1], evening: !!arr[2] },
+      note: notes[di] || ''
+    };
   });
-  s.chosen = null;
-  return s;
+  state.selectedMemberId = me.id;
+}
+
+/* Chỉ xóa thành viên do chính thiết bị này tạo */
+function removeMyMember() {
+  const me = getMyMember();
+  if (!me) { toast('Thiết bị này chưa có thành viên để xóa.'); return; }
+  if (!confirm(`Xóa thành viên "${me.name}" và toàn bộ lịch của bạn khỏi nhóm?`)) return;
+  state.members = state.members.filter(m => m.id !== me.id);
+  delete state.availability[me.id];
+  if (state.selectedMemberId === me.id) state.selectedMemberId = state.members[0]?.id || null;
+}
+
+/* Nhập JSON: chỉ khôi phục lịch của chính thiết bị này */
+function importOwnData(raw) {
+  const imported = normalizeState(raw);
+  const me = getMyMember();
+  if (!me) { toast('Thiết bị này chưa có thành viên để nhận dữ liệu.'); return; }
+  const src = imported.members.find(m => m.owner === MY_DEVICE) ||
+              imported.members.find(m => m.id === me.id);
+  if (!src) { toast('File không chứa thành viên của thiết bị này.'); return; }
+  const entries = imported.availability[src.id];
+  if (!entries || typeof entries !== 'object') { toast('File không chứa lịch của bạn.'); return; }
+  state.availability[me.id] = entries;
+  me.name = src.name;
+  me.color = src.color;
 }
 
 function exportJson() {
@@ -471,19 +536,33 @@ document.getElementById('memberChips').addEventListener('click', e => {
   if (!chip) return;
   const id = chip.dataset.id;
   const action = e.target.closest('button')?.dataset.action;
+  const m = getMember(id);
+
+  if (action === 'edit') {
+    openMemberModal(id);
+    return;
+  }
+  if (action === 'claim') {
+    if (getMyMember()) { toast('Thiết bị này đã có thành viên.'); return; }
+    if (!m || m.owner) return;
+    m.owner = MY_DEVICE;
+    state.selectedMemberId = id;
+    save(); renderAll();
+    toast(`Đã gán "${m.name}" làm thành viên của thiết bị này.`);
+    return;
+  }
   if (action === 'delete') {
-    const m = getMember(id);
-    if (!m || !confirm(`Xóa "${m.name}" và toàn bộ lịch rảnh của họ?`)) return;
-    state.members = state.members.filter(x => x.id !== id);
-    delete state.availability[id];
-    if (state.selectedMemberId === id) state.selectedMemberId = state.members[0]?.id || null;
+    if (!isMine(m)) { toast('🔒 Bạn không thể xóa thành viên của máy khác.'); return; }
+    if (!confirm(`Xóa "${m.name}" và toàn bộ lịch rảnh của bạn?`)) return;
+    removeMyMember();
     ui.showAll = false;
     save(); renderAll();
     toast(`Đã xóa ${m.name}.`);
-  } else {
-    state.selectedMemberId = id;
-    save(); renderAll();
+    return;
   }
+  state.selectedMemberId = id;
+  saveLocal();
+  renderAll();
 });
 
 document.getElementById('colorSwatches').addEventListener('click', e => {
@@ -498,14 +577,25 @@ document.getElementById('memberForm').addEventListener('submit', e => {
   if (!name) return;
   if (ui.modalId) {
     const m = getMember(ui.modalId);
-    if (m) { m.name = name; m.color = ui.modalColor; }
-    toast('Đã cập nhật thành viên.');
+    if (!isMine(m)) {
+      toast('🔒 Bạn chỉ được sửa thành viên của mình.');
+      closeMemberModal();
+      return;
+    }
+    m.name = name;
+    m.color = ui.modalColor;
+    toast('Đã cập nhật thành viên của bạn.');
   } else {
+    if (getMyMember()) {
+      toast('Mỗi thiết bị chỉ được tạo 1 thành viên.');
+      closeMemberModal();
+      return;
+    }
     const id = 'u' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-    state.members.push({ id, name, color: ui.modalColor });
+    state.members.push({ id, name, color: ui.modalColor, owner: MY_DEVICE });
     state.availability[id] = {};
     state.selectedMemberId = id;
-    toast(`Đã thêm ${name}.`);
+    toast(`Đã thêm ${name} — thành viên của thiết bị này.`);
   }
   ui.showAll = false;
   closeMemberModal();
@@ -540,7 +630,7 @@ document.getElementById('dayCards').addEventListener('click', e => {
   if (!btn) return;
   const dayCard = btn.closest('.day-card');
   const member = getMember(state.selectedMemberId);
-  if (!member || !dayCard) return;
+  if (!member || !dayCard || !isMine(member)) return;
   const entry = ensureEntry(member.id, dayCard.dataset.date);
   const slot = btn.dataset.slot;
   entry.slots[slot] = !entry.slots[slot];
@@ -550,7 +640,7 @@ document.getElementById('dayCards').addEventListener('input', e => {
   const area = e.target.closest('.note-input');
   if (!area) return;
   const member = getMember(state.selectedMemberId);
-  if (!member) return;
+  if (!member || !isMine(member)) return;
   const entry = ensureEntry(member.id, area.dataset.date);
   entry.note = area.value.slice(0, 300);
   area.classList.toggle('has-note', !!entry.note.trim());
@@ -559,7 +649,7 @@ document.getElementById('dayCards').addEventListener('input', e => {
 
 document.getElementById('btnSelectAll').addEventListener('click', () => {
   const member = getMember(state.selectedMemberId);
-  if (!member) return;
+  if (!member || !isMine(member)) return;
   getWeekDates().forEach(d => {
     const entry = ensureEntry(member.id, toKey(d));
     SLOTS.forEach(s => { entry.slots[s.id] = true; });
@@ -569,7 +659,7 @@ document.getElementById('btnSelectAll').addEventListener('click', () => {
 });
 document.getElementById('btnClearWeek').addEventListener('click', () => {
   const member = getMember(state.selectedMemberId);
-  if (!member) return;
+  if (!member || !isMine(member)) return;
   if (!confirm(`Xóa tất cả đánh dấu của ${member.name} trong tuần này?`)) return;
   getWeekDates().forEach(d => {
     const entry = ensureEntry(member.id, toKey(d));
@@ -607,18 +697,16 @@ document.getElementById('btnClearChosen').addEventListener('click', () => {
 });
 
 document.getElementById('btnSample').addEventListener('click', () => {
-  if (!confirm('Thay toàn bộ dữ liệu hiện tại bằng dữ liệu mẫu?')) return;
-  state = buildSampleState();
+  fillMySample();
   ui.showAll = false;
   save(); renderAll();
-  toast('✨ Đã tải dữ liệu mẫu.');
+  toast('✨ Đã điền lịch mẫu cho thành viên của bạn.');
 });
 document.getElementById('btnReset').addEventListener('click', () => {
-  if (!confirm('Xóa tất cả thành viên và lịch rảnh? Hành động này không thể hoàn tác.')) return;
-  state = defaultState();
+  removeMyMember();
   ui.showAll = false;
   save(); renderAll();
-  toast('Đã xóa tất cả dữ liệu.');
+  toast('Đã xóa thành viên của thiết bị này.');
 });
 document.getElementById('btnExport').addEventListener('click', exportJson);
 document.getElementById('btnImport').addEventListener('click', () => document.getElementById('fileImport').click());
@@ -627,10 +715,10 @@ document.getElementById('fileImport').addEventListener('change', async e => {
   if (!file) return;
   try {
     const parsed = JSON.parse(await file.text());
-    state = normalizeState(parsed);
+    importOwnData(parsed);
     ui.showAll = false;
     save(); renderAll();
-    toast('✅ Đã nhập dữ liệu thành công.');
+    toast('✅ Đã khôi phục lịch của riêng bạn từ file.');
   } catch (err) {
     console.error(err);
     toast('❌ File JSON không hợp lệ.');

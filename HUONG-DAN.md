@@ -18,9 +18,22 @@ Mở `index.html` bằng trình duyệt. Dữ liệu tự động lưu trong `lo
 5. **Xem gợi ý**: cột bên phải xếp hạng các buổi theo số thành viên rảnh, kèm danh sách tên và ghi chú khung giờ của từng người. Dùng ô “Yêu cầu ít nhất” để lọc (mặc định là tất cả thành viên).
 6. **Chốt lịch**: nhấn “Chọn thời điểm này” ở một gợi ý để lưu lại; phần “Lịch họp đã chọn” sẽ hiển thị chi tiết.
 
+## Quyền sở hữu theo thiết bị
+
+Mỗi trình duyệt/thiết bị có một `deviceId` riêng, lưu trong `localStorage`.
+
+- **Mỗi thiết bị chỉ được tạo đúng 1 thành viên.** Sau khi tạo, nút “Thêm thành viên” sẽ ẩn đi.
+- Thiết bị **chỉ sửa được thành viên do chính nó tạo**: đổi tên/màu, tích buổi rảnh, ghi chú, chọn cả tuần, xóa tuần.
+- Lịch do **máy khác** tạo ở chế độ **chỉ xem** (biểu tượng 🔒): vẫn hiện trong bảng tổng hợp và gợi ý, nhưng nút tích/ghi chú bị vô hiệu hóa.
+- Nếu dữ liệu cũ chưa có chủ, thiết bị chưa có thành viên có thể nhấn nút **Nhận** trên chip đó.
+- “Lịch mẫu cho tôi” chỉ điền lịch cho **thành viên của bạn**.
+- “Xóa thành viên của tôi” chỉ xóa thành viên của thiết bị hiện tại.
+- “Nhập JSON” chỉ khôi phục lịch của riêng bạn; “Xuất JSON” vẫn xuất toàn nhóm để sao lưu.
+- Chọn thời điểm họp vẫn cho phép mọi người (quyết định chung).
+
 ## Tiện ích khác
 
-- **Dữ liệu mẫu**: tạo 4 thành viên với lịch rảnh mẫu để xem thử (có 4 buổi mà cả nhóm đều rảnh).
+- **Lịch mẫu cho tôi**: điền sẵn lịch rảnh cho thành viên của thiết bị này để xem thử.
 - **Xuất / Nhập JSON**: sao lưu hoặc chuyển dữ liệu sang máy khác.
 - **Xóa tất cả**: xoá toàn bộ thành viên và lịch rảnh.
 - Các nút “Chọn cả tuần” / “Xóa tuần này” áp dụng cho thành viên đang được chọn.
