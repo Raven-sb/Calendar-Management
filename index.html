@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lịch rảnh nhóm bạn — Tìm thời điểm họp phù hợp</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="logo" aria-hidden="true">🗓️</span>
+        <div class="brand-text">
+          <input id="groupName" class="group-name" type="text" maxlength="60" aria-label="Tên nhóm">
+          <p>Đánh dấu lịch rảnh · Tổng hợp &amp; gợi ý thời điểm họp cả nhóm</p>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <button class="btn ghost" id="btnSample" type="button">✨ Dữ liệu mẫu</button>
+        <button class="btn ghost" id="btnExport" type="button">⬇️ Xuất JSON</button>
+        <button class="btn ghost" id="btnImport" type="button">⬆️ Nhập JSON</button>
+        <input type="file" id="fileImport" accept="application/json,.json" hidden>
+        <button class="btn danger-ghost" id="btnReset" type="button">🗑️ Xóa tất cả</button>
+      </div>
+    </header>
+
+    <section class="card sync-card" id="syncCard" aria-labelledby="syncStatus">
+      <div class="sync-left">
+        <span class="sync-dot offline" id="syncDot" aria-hidden="true"></span>
+        <div>
+          <strong id="syncStatus">Chế độ offline</strong>
+          <p id="syncDetail">Dữ liệu chỉ lưu trên máy này.</p>
+        </div>
+      </div>
+      <div class="sync-actions" id="syncActions" hidden>
+        <input id="roomCodeInput" type="text" maxlength="12" placeholder="Mã nhóm (VD: A7K2M9QX)" aria-label="Mã nhóm">
+        <button class="btn primary small" id="btnJoinRoom" type="button">Tham gia</button>
+        <button class="btn ghost small" id="btnCreateRoom" type="button">Tạo nhóm mới</button>
+      </div>
+      <div class="sync-joined" id="syncJoined" hidden>
+        <span class="sync-code-label">Mã nhóm của bạn</span>
+        <code id="roomCodeDisplay"></code>
+        <button class="btn ghost small" id="btnCopyRoom" type="button">📋 Sao chép</button>
+        <button class="btn ghost small" id="btnLeaveRoom" type="button">Rời nhóm</button>
+      </div>
+    </section>
+
+    <section class="card members-card" aria-labelledby="membersTitle">
+      <div class="card-head">
+        <div>
+          <h2 id="membersTitle">Thành viên nhóm</h2>
+          <p id="memberSummary">Chưa có thành viên nào</p>
+        </div>
+        <button class="btn primary" id="btnAddMember" type="button">＋ Thêm thành viên</button>
+      </div>
+      <div class="member-chips" id="memberChips"></div>
+    </section>
+
+    <section class="weekbar" aria-label="Chọn tuần">
+      <button class="nav-btn" id="btnPrevWeek" type="button" aria-label="Tuần trước">‹</button>
+      <div class="week-title" id="weekTitle"></div>
+      <button class="nav-btn" id="btnNextWeek" type="button" aria-label="Tuần sau">›</button>
+      <button class="btn ghost small" id="btnToday" type="button">Về tuần hiện tại</button>
+      <span class="week-hint">Chọn một thành viên ở trên, sau đó tích vào các buổi họ rảnh.</span>
+    </section>
+
+    <div class="layout">
+      <main class="main-col">
+        <section class="card" aria-labelledby="calendarTitle">
+          <div class="card-head">
+            <div>
+              <h2 id="calendarTitle">Lịch cá nhân</h2>
+              <p id="calendarSubtitle">Mỗi ngày có 3 buổi: sáng, chiều, tối. Bạn có thể ghi chú khung giờ cụ thể.</p>
+            </div>
+            <div class="head-actions" id="calendarActions" hidden>
+              <button class="btn ghost small" id="btnSelectAll" type="button">✓ Chọn cả tuần</button>
+              <button class="btn ghost small" id="btnClearWeek" type="button">✕ Xóa tuần này</button>
+            </div>
+          </div>
+          <div class="day-grid" id="dayCards"></div>
+        </section>
+
+        <section class="card" aria-labelledby="matrixTitle">
+          <div class="card-head">
+            <div>
+              <h2 id="matrixTitle">Bảng tổng hợp cả nhóm</h2>
+              <p>Số thành viên rảnh trong từng buổi. Màu càng đậm thì càng nhiều người rảnh.</p>
+            </div>
+          </div>
+          <div class="matrix-wrap">
+            <table class="matrix" id="matrixTable"></table>
+          </div>
+          <div class="legend">
+            <span><i class="lg full"></i> Tất cả rảnh</span>
+            <span><i class="lg mid"></i> Nửa nhóm trở lên</span>
+            <span><i class="lg low"></i> Ít người rảnh</span>
+            <span><i class="lg none"></i> Không ai rảnh</span>
+          </div>
+        </section>
+      </main>
+
+      <aside class="side-col">
+        <section class="card suggestions-card" aria-labelledby="suggestTitle">
+          <div class="card-head">
+            <div>
+              <h2 id="suggestTitle">🎯 Gợi ý thời điểm họp</h2>
+              <p id="suggestSummary">Đang tính toán...</p>
+            </div>
+          </div>
+          <div class="filter-row">
+            <label for="minMembers">Yêu cầu ít nhất</label>
+            <select id="minMembers"></select>
+          </div>
+          <div class="suggestion-list" id="suggestionList"></div>
+          <button class="btn ghost block" id="btnShowMore" type="button" hidden></button>
+        </section>
+
+        <section class="card chosen-card" id="chosenCard" hidden aria-labelledby="chosenTitle">
+          <div class="chosen-top">
+            <h2 id="chosenTitle">✅ Lịch họp đã chọn</h2>
+            <button class="icon-btn" id="btnClearChosen" type="button" aria-label="Xóa lịch đã chọn">✕</button>
+          </div>
+          <div id="chosenBody"></div>
+        </section>
+      </aside>
+    </div>
+
+    <footer class="footer">
+      <span>Dữ liệu được lưu tự động trên trình duyệt này (localStorage).</span>
+      <span id="savedAt"></span>
+    </footer>
+  </div>
+
+  <!-- Modal thêm/sửa thành viên -->
+  <div class="modal-backdrop" id="memberModal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="memberModalTitle">
+      <div class="modal-head">
+        <h2 id="memberModalTitle">Thêm thành viên</h2>
+        <button class="icon-btn" type="button" data-close="memberModal" aria-label="Đóng">✕</button>
+      </div>
+      <form id="memberForm">
+        <div class="modal-body">
+          <div class="field">
+            <label for="fMemberName">Tên thành viên</label>
+            <input id="fMemberName" name="name" type="text" maxlength="30" required placeholder="Ví dụ: An">
+          </div>
+          <div class="field">
+            <label>Màu đại diện</label>
+            <div class="color-swatches" id="colorSwatches"></div>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn ghost" type="button" data-close="memberModal">Hủy</button>
+          <button class="btn primary" type="submit">Lưu thành viên</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+  <script type="module" src="sync.js"></script>
+</body>
+</html>
